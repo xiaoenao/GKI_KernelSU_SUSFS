@@ -1,0 +1,157 @@
+diff --git a/kernel/apk_sign.c b/kernel/apk_sign.c
+index c1e803d7..9fc6af71 100644
+--- a/kernel/apk_sign.c
++++ b/kernel/apk_sign.c
+@@ -315,23 +315,7 @@ module_param_cb(ksu_debug_manager_uid, &expected_size_ops,
+ 
+ #endif
+ 
+-bool is_manager_apk(char *path)
++bool ksu_is_manager_apk(char *path)
+ {
+-	int tries = 0;
+-
+-	while (tries++ < 10) {
+-		if (!is_lock_held(path))
+-			break;
+-
+-		pr_info("%s: waiting for %s\n", __func__, path);
+-		msleep(100);
+-	}
+-
+-	// let it go, if retry fails, check_v2_signature will fail to open it anyway
+-	if (tries == 10) {
+-		pr_info("%s: timeout for %s\n", __func__, path);
+-		return false;
+-	}
+-
+ 	return check_v2_signature(path, EXPECTED_NEXT_SIZE, EXPECTED_NEXT_HASH);
+ }
+diff --git a/kernel/core_hook.c b/kernel/core_hook.c
+index 0c16884b..90b23cdb 100644
+--- a/kernel/core_hook.c
++++ b/kernel/core_hook.c
+@@ -1002,12 +1002,35 @@ static void ksu_try_umount(const char *mnt, bool check_mnt, int flags)
+ 		return;
+ 	}
+ 
++#if defined(CONFIG_KSU_SUSFS_TRY_UMOUNT) && defined(CONFIG_KSU_SUSFS_ENABLE_LOG)
++	if (susfs_is_log_enabled) {
++			pr_info("susfs: umounting '%s' for uid: %d\n", mnt, uid);
++	}
++#endif
++
+ 	err = ksu_umount_mnt(&path, flags);
+ 	if (err) {
+ 		pr_warn("umount %s failed: %d\n", mnt, err);
+ 	}
+ }
+ 
++#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
++void susfs_try_umount_all(uid_t uid) {
++	susfs_try_umount(uid);
++	/* For Legacy KSU only */
++	ksu_try_umount("/system", true, 0, uid);
++	ksu_try_umount("/system_ext", true, 0, uid);
++	ksu_try_umount("/vendor", true, 0, uid);
++	ksu_try_umount("/product", true, 0, uid);
++	ksu_try_umount("/odm", true, 0, uid);
++	// - For '/data/adb/modules' we pass 'false' here because it is a loop device that we can't determine whether 
++	//   its dev_name is KSU or not, and it is safe to just umount it if it is really a mountpoint
++	ksu_try_umount("/data/adb/modules", false, MNT_DETACH, uid);
++	/* For both Legacy KSU and Magic Mount KSU */
++	ksu_try_umount("/debug_ramdisk", true, MNT_DETACH, uid);
++}
++#endif
++
+ int ksu_handle_setuid(struct cred *new, const struct cred *old)
+ {
+ 	// this hook is used for umounting overlayfs for some uid, if there isn't any module mounted, just ignore it!
+@@ -1086,25 +1109,30 @@ out_ksu_try_umount:
+ 		current->pid);
+ #endif
+ 
++#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
++	// susfs come first, and lastly umount by ksu, make sure umount in reversed order
++	susfs_try_umount_all(new_uid.val);
++#else
+ 	// fixme: use `collect_mounts` and `iterate_mount` to iterate all mountpoint and
+ 	// filter the mountpoint whose target is `/data/adb`
+-	try_umount("/odm", true, 0);
+-	try_umount("/system", true, 0);
+-	try_umount("/system_ext", true, 0);
+-	try_umount("/vendor", true, 0);
+-	try_umount("/product", true, 0);
+-	try_umount("/data/adb/modules", false, MNT_DETACH);
++	ksu_try_umount("/odm", true, 0);
++	ksu_try_umount("/system", true, 0);
++	ksu_try_umount("/system_ext", true, 0);
++	ksu_try_umount("/vendor", true, 0);
++	ksu_try_umount("/product", true, 0);
++	ksu_try_umount("/data/adb/modules", false, MNT_DETACH);
+ 
+ 	// try umount ksu temp path
+-	try_umount("/debug_ramdisk", false, MNT_DETACH);
+-	try_umount("/sbin", false, MNT_DETACH);
+-
++	ksu_try_umount("/debug_ramdisk", false, MNT_DETACH);
++	ksu_try_umount("/sbin", false, MNT_DETACH);
++	
+ 	// try umount hosts file
+-	try_umount("/system/etc/hosts", false, MNT_DETACH);
++	ksu_try_umount("/system/etc/hosts", false, MNT_DETACH);
+ 
+ 	// try umount lsposed dex2oat bins
+-	try_umount("/apex/com.android.art/bin/dex2oat64", false, MNT_DETACH);
+-	try_umount("/apex/com.android.art/bin/dex2oat32", false, MNT_DETACH);
++	ksu_try_umount("/apex/com.android.art/bin/dex2oat64", false, MNT_DETACH);
++	ksu_try_umount("/apex/com.android.art/bin/dex2oat32", false, MNT_DETACH);
++#endif
+ 
+ 	return 0;
+ }
+diff --git a/kernel/ksud.c b/kernel/ksud.c
+index fa4bf22a..628e0e23 100644
+--- a/kernel/ksud.c
++++ b/kernel/ksud.c
+@@ -71,15 +71,15 @@ u32 ksu_devpts_sid;
+ bool ksu_is_compat __read_mostly = false;
+ #endif
+ 
+-void on_post_fs_data(void)
++void ksu_on_post_fs_data(void)
+ {
+ 	static bool done = false;
+ 	if (done) {
+-		pr_info("on_post_fs_data already done\n");
++		pr_info("ksu_on_post_fs_data already done\n");
+ 		return;
+ 	}
+ 	done = true;
+-	pr_info("on_post_fs_data!\n");
++	pr_info("ksu_on_post_fs_data!\n");
+ 	ksu_load_allow_list();
+ 	// sanity check, this may influence the performance
+ 	stop_input_hook();
+diff --git a/kernel/selinux/selinux.c b/kernel/selinux/selinux.c
+index 798629d5..e171e010 100644
+--- a/kernel/selinux/selinux.c
++++ b/kernel/selinux/selinux.c
+@@ -60,7 +60,7 @@ if (!is_domain_permissive) {
+ }*/
+ }
+ 
+-void setenforce(bool enforce)
++void ksu_setenforce(bool enforce)
+ {
+ #ifdef CONFIG_SECURITY_SELINUX_DEVELOP
+ #ifdef KSU_COMPAT_USE_SELINUX_STATE
+@@ -71,7 +71,7 @@ void setenforce(bool enforce)
+ #endif
+ }
+ 
+-bool getenforce()
++bool ksu_getenforce()
+ {
+ #ifdef CONFIG_SECURITY_SELINUX_DISABLE
+ #ifdef KSU_COMPAT_USE_SELINUX_STATE

@@ -36,6 +36,11 @@ on:
         required: true
         type: boolean
         default: true
+      onlyAk3:
+        description: '仅上传AK3压缩包?(无boot,下载更快)'
+        required: false
+        type: boolean
+        default: false
   
 jobs:
   build-kernel-a12-5-10-kernelsu-susfs:
@@ -67,6 +72,9 @@ jobs:
         - sub_level: "218"
           os_patch_level: "2024-08"
           revision: "r14"
+        - sub_level: "226"
+          os_patch_level: "2024-11"
+          revision: "r8"
         - sub_level: "X"
           os_patch_level: "lts"
           revision: "r1"
@@ -86,3 +94,5 @@ jobs:
       use_zram: ${{ inputs.use_zram }}
       use_kpm: ${{ inputs.use_kpm }}
       supp_op: ${{ inputs.supp_op || false }}
+      fast: ${{ inputs.fast || false }}
+      onlyAk3: ${{ inputs.onlyAk3 || false }}

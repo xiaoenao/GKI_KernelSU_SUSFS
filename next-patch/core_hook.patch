@@ -1,17 +1,52 @@
 diff --git a/kernel/core_hook.c b/kernel/core_hook.c
-index a6b8b083..3f1d6d85 100644
+index 892a4c5a..0e8e3da9 100644
 --- a/kernel/core_hook.c
 +++ b/kernel/core_hook.c
-@@ -1105,27 +1105,32 @@ out_ksu_try_umount:
- 	pr_info("handle umount for uid: %d, pid: %d\n", new_uid.val,
+@@ -1044,12 +1044,35 @@ static void ksu_try_umount(const char *mnt, bool check_mnt, int flags)
+ 		return;
+ 	}
+ 
++#if defined(CONFIG_KSU_SUSFS_TRY_UMOUNT) && defined(CONFIG_KSU_SUSFS_ENABLE_LOG)
++	if (susfs_is_log_enabled) {
++		pr_info("susfs: umounting '%s' for uid: %d\n", mnt, uid);
++	}
++#endif
++
+ 	err = ksu_umount_mnt(&path, flags);
+ 	if (err) {
+ 		pr_warn("umount %s failed: %d\n", mnt, err);
+ 	}
+ }
+ 
++#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
++void susfs_try_umount_all(uid_t uid) {
++	susfs_try_umount(uid);
++	/* For Legacy KSU only */
++	ksu_try_umount("/system", true, 0, uid);
++	ksu_try_umount("/system_ext", true, 0, uid);
++	ksu_try_umount("/vendor", true, 0, uid);
++	ksu_try_umount("/product", true, 0, uid);
++	ksu_try_umount("/odm", true, 0, uid);
++	// - For '/data/adb/modules' we pass 'false' here because it is a loop device that we can't determine whether 
++	//   its dev_name is KSU or not, and it is safe to just umount it if it is really a mountpoint
++	ksu_try_umount("/data/adb/modules", false, MNT_DETACH, uid);
++	/* For both Legacy KSU and Magic Mount KSU */
++	ksu_try_umount("/debug_ramdisk", true, MNT_DETACH, uid);
++}
++#endif
++
+ int ksu_handle_setuid(struct cred *new, const struct cred *old)
+ {
+ 	// this hook is used for umounting overlayfs for some uid, if there isn't any module mounted, just ignore it!
+@@ -1142,25 +1165,31 @@ out_ksu_try_umount:
  		current->pid);
  #endif
-+ 
+ 
 +#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
++out_susfs_try_umount_all:
 +	// susfs come first, and lastly umount by ksu, make sure umount in reversed order
 +	susfs_try_umount_all(new_uid.val);
 +#else
- 
  	// fixme: use `collect_mounts` and `iterate_mount` to iterate all mountpoint and
  	// filter the mountpoint whose target is `/data/adb`
 -	try_umount("/odm", true, 0);
@@ -32,7 +67,7 @@ index a6b8b083..3f1d6d85 100644
 -	try_umount("/sbin", false, MNT_DETACH);
 +	ksu_try_umount("/debug_ramdisk", false, MNT_DETACH);
 +	ksu_try_umount("/sbin", false, MNT_DETACH);
- 	
+ 
  	// try umount hosts file
 -	try_umount("/system/etc/hosts", false, MNT_DETACH);
 +	ksu_try_umount("/system/etc/hosts", false, MNT_DETACH);
@@ -40,43 +75,9 @@ index a6b8b083..3f1d6d85 100644
  	// try umount lsposed dex2oat bins
 -	try_umount("/apex/com.android.art/bin/dex2oat64", false, MNT_DETACH);
 -	try_umount("/apex/com.android.art/bin/dex2oat32", false, MNT_DETACH);
--
 +	ksu_try_umount("/apex/com.android.art/bin/dex2oat64", false, MNT_DETACH);
 +	ksu_try_umount("/apex/com.android.art/bin/dex2oat32", false, MNT_DETACH);
 +#endif
+ 
  	return 0;
  }
- 
-diff --git a/kernel/ksud.c b/kernel/ksud.c
-index 816d066b..c41db884 100644
---- a/kernel/ksud.c
-+++ b/kernel/ksud.c
-@@ -64,6 +64,9 @@ bool ksu_vfs_read_hook __read_mostly = true;
- bool ksu_execveat_hook __read_mostly = true;
- bool ksu_input_hook __read_mostly = true;
- 
-+#ifdef CONFIG_KSU_SUSFS_SUS_SU
-+bool susfs_is_sus_su_ready = false;
-+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_SU
- 
- u32 ksu_devpts_sid;
- 
-@@ -71,15 +74,15 @@ u32 ksu_devpts_sid;
- bool ksu_is_compat __read_mostly = false;
- #endif
- 
--void on_post_fs_data(void)
-+void ksu_on_post_fs_data(void)
- {
- 	static bool done = false;
- 	if (done) {
--		pr_info("on_post_fs_data already done\n");
-+		pr_info("ksu_on_post_fs_data already done\n");
- 		return;
- 	}
- 	done = true;
--	pr_info("on_post_fs_data!\n");
-+	pr_info("ksu_on_post_fs_data!\n");
- 	ksu_load_allow_list();
- 	// sanity check, this may influence the performance
- 	stop_input_hook();
