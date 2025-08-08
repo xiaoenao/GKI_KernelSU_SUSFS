@@ -1,8 +1,8 @@
 diff --git a/kernel/core_hook.c b/kernel/core_hook.c
-index 892a4c5a..0e8e3da9 100644
+index 2ce5c1f5..81ff9a53 100644
 --- a/kernel/core_hook.c
 +++ b/kernel/core_hook.c
-@@ -1044,12 +1044,35 @@ static void ksu_try_umount(const char *mnt, bool check_mnt, int flags)
+@@ -1024,12 +1024,35 @@ static void ksu_try_umount(const char *mnt, bool check_mnt, int flags)
  		return;
  	}
  
@@ -11,7 +11,7 @@ index 892a4c5a..0e8e3da9 100644
 +		pr_info("susfs: umounting '%s' for uid: %d\n", mnt, uid);
 +	}
 +#endif
-+
++	
  	err = ksu_umount_mnt(&path, flags);
  	if (err) {
  		pr_warn("umount %s failed: %d\n", mnt, err);
@@ -38,7 +38,7 @@ index 892a4c5a..0e8e3da9 100644
  int ksu_handle_setuid(struct cred *new, const struct cred *old)
  {
  	// this hook is used for umounting overlayfs for some uid, if there isn't any module mounted, just ignore it!
-@@ -1142,25 +1165,31 @@ out_ksu_try_umount:
+@@ -1143,25 +1166,31 @@ out_ksu_try_umount:
  		current->pid);
  #endif
  

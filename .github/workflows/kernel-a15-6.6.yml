@@ -47,6 +47,10 @@ on:
         required: false
         type: boolean
         default: false
+      build_time:
+        description: '设置内核构建时间(格式见仓库说明)'
+        required: false
+        type: string
 
 
 jobs:
@@ -89,3 +93,4 @@ jobs:
       supp_op: ${{ inputs.supp_op }}
       fast: ${{ inputs.fast }}
       onlyAk3: ${{ inputs.onlyAk3 || false }}
+      build_time: ${{ inputs.build_time || '' }}

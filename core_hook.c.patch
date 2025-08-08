@@ -1,12 +1,13 @@
 diff --git a/kernel/core_hook.c b/kernel/core_hook.c
-index 5f0de84f..bf881286 100644
+index 0f33a2dd..2471c7bb 100644
 --- a/kernel/core_hook.c
 +++ b/kernel/core_hook.c
-@@ -1078,17 +1078,22 @@ out_ksu_try_umount:
+@@ -1164,17 +1164,23 @@ out_ksu_try_umount:
  		current->pid);
  #endif
  
 +#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
++out_susfs_try_umount_all:
 +	// susfs come first, and lastly umount by ksu, make sure umount in reversed order
 +	susfs_try_umount_all(new_uid.val);
 +#else
